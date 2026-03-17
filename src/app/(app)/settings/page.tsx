@@ -1,24 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-
-const userId = "demo-user";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
 
 export default function SettingsPage() {
+  const { fetchWithAuth, userId } = useAuthenticatedFetch();
   const [outlookConnected, setOutlookConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const autoSyncDone = useRef(false);
 
   useEffect(() => {
-    fetch(`/api/outlook/status?userId=${userId}`)
+    if (!userId) return;
+    fetchWithAuth("/api/outlook/status")
       .then((r) => r.json())
       .then((data) => setOutlookConnected(data.connected))
       .catch(() => setOutlookConnected(false))
       .finally(() => setLoading(false));
-  }, []);
+  }, [userId, fetchWithAuth]);
 
   useEffect(() => {
     const params = new URLSearchParams(
@@ -26,53 +28,99 @@ export default function SettingsPage() {
     );
     const connected = params.get("outlook_connected");
     const error = params.get("outlook_error");
+    const errorDetail = params.get("error_detail");
     if (connected === "1") {
       setOutlookConnected(true);
-      setMessage("Outlook connected successfully.");
+      setMessage("Outlook connected successfully. Syncing…");
     }
     if (error) {
-      setMessage(
+      let msg =
         error === "config"
           ? "Microsoft OAuth not configured. Add MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET to .env.local"
           : error === "no_code"
             ? "Connection cancelled. Try again."
-            : error === "exchange_failed"
-              ? "Connection failed. Check your Azure app settings."
-              : `Error: ${error}`
-      );
+            : error === "missing_state"
+              ? "Session expired. Please try connecting again from Settings."
+              : error === "exchange_failed"
+                ? "Connection failed. Check your Azure app settings."
+                : `Error: ${error}`;
+      if (errorDetail) msg += ` (${errorDetail})`;
+      setMessage(msg);
     }
   }, []);
 
+  const syncOutlook = useCallback(
+    async (params: string) => {
+      if (!userId) return;
+      setSyncing(true);
+      try {
+        const res = await fetchWithAuth(`/api/outlook/sync?${params}`, {
+          method: "POST",
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const range =
+            data.startDate === data.endDate
+              ? data.startDate
+              : `${data.startDate} → ${data.endDate}`;
+          setMessage(
+            `Synced ${data.eventsSynced ?? 0} events from Outlook (${range}).`
+          );
+        } else {
+          setMessage(data.error ?? "Sync failed.");
+        }
+      } catch {
+        setMessage("Sync failed.");
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [userId, fetchWithAuth]
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(
+      typeof window !== "undefined" ? window.location.search : ""
+    );
+    if (
+      params.get("outlook_connected") === "1" &&
+      userId &&
+      !autoSyncDone.current
+    ) {
+      autoSyncDone.current = true;
+      setOutlookConnected(true);
+      setMessage("Outlook connected successfully. Syncing…");
+      window.history.replaceState({}, "", "/settings");
+      // Brief delay so cookie from redirect is available before sync
+      const t = setTimeout(() => syncOutlook("days=7"), 500);
+      return () => clearTimeout(t);
+    }
+  }, [userId, syncOutlook]);
+
   const handleConnect = () => {
     setMessage(null);
-    window.location.href = `/api/auth/outlook?userId=${userId}`;
+    if (userId) window.location.href = `/api/auth/outlook?userId=${userId}`;
   };
 
-  const handleSync = async () => {
+  const handleSyncToday = () => {
     setMessage(null);
-    setSyncing(true);
-    try {
-      const date = new Date().toISOString().slice(0, 10);
-      const res = await fetch(`/api/outlook/sync?date=${date}&userId=${userId}`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage(`Synced ${data.eventsSynced ?? 0} events from Outlook.`);
-      } else {
-        setMessage(data.error ?? "Sync failed.");
-      }
-    } catch {
-      setMessage("Sync failed.");
-    } finally {
-      setSyncing(false);
-    }
+    syncOutlook(`date=${new Date().toISOString().slice(0, 10)}`);
+  };
+
+  const handleSyncPastWeek = () => {
+    setMessage(null);
+    syncOutlook("days=7");
+  };
+
+  const handleSyncPastMonth = () => {
+    setMessage(null);
+    syncOutlook("days=30");
   };
 
   const handleDisconnect = async () => {
     setMessage(null);
     try {
-      await fetch(`/api/outlook/disconnect?userId=${userId}`, {
+      await fetchWithAuth("/api/outlook/disconnect", {
         method: "POST",
       });
       setOutlookConnected(false);
@@ -115,8 +163,22 @@ export default function SettingsPage() {
             <p className="text-sm text-slate-500">Checking connection...</p>
           ) : outlookConnected ? (
             <div className="flex flex-wrap gap-3">
-              <Button onClick={handleSync} disabled={syncing}>
+              <Button onClick={handleSyncToday} disabled={syncing}>
                 {syncing ? "Syncing..." : "Sync today"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleSyncPastWeek}
+                disabled={syncing}
+              >
+                Sync past week
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleSyncPastMonth}
+                disabled={syncing}
+              >
+                Sync past month
               </Button>
               <Button variant="ghost" onClick={handleDisconnect}>
                 Disconnect

@@ -10,6 +10,7 @@ export const COLLECTIONS = {
   SUGGESTED_ENTRIES: "suggested_entries",
   TIME_ENTRIES: "time_entries",
   SETTINGS: "settings",
+  OUTLOOK_TOKENS: "outlook_tokens",
 } as const;
 
 /** Convert Firestore Timestamp to Date */

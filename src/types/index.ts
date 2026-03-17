@@ -17,8 +17,39 @@ export interface Case {
   caseName: string;
   matterNumber: string;
   clientName: string;
+  /** Client first name (for import) */
+  clientFirstName?: string;
+  /** Client last name (for import) */
+  clientLastName?: string;
+  /** Defendant name if entity/organization */
+  defendantName?: string;
+  /** Defendant first name if individual */
+  defendantFirstName?: string;
+  /** Defendant last name if individual */
+  defendantLastName?: string;
+  /** Case number (e.g. matter number) */
+  caseNumber?: string;
+  /** External case ID */
+  caseId?: string;
+  /** Defense counsel name */
+  defenseCounsel?: string;
+  /** Emails for matching (1–6): client, defense, etc. */
+  emails?: string[];
   status: "active" | "closed" | "pending";
   createdAt: Date | string;
+}
+
+/** Input for importing/creating a case */
+export interface CaseImportInput {
+  clientFirstName: string;
+  clientLastName: string;
+  defendantName?: string;
+  defendantFirstName?: string;
+  defendantLastName?: string;
+  caseNumber: string;
+  caseId?: string;
+  defenseCounsel?: string;
+  emails?: string[];
 }
 
 // --- Contact ---
@@ -116,6 +147,8 @@ export interface UserSettings {
   defaultTravelBilling: number;
   autoApproveCalendarEvents: boolean;
   timezone: string;
+  /** User's email (e.g. jon@calljonnylaw.com) - used to exclude internal emails when adding case emails */
+  userEmail?: string;
 }
 
 // --- Webhook payload types ---

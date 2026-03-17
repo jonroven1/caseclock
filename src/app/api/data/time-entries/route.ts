@@ -1,10 +1,26 @@
 /**
- * GET /api/data/time-entries?date=YYYY-MM-DD&userId=demo-user
+ * GET /api/data/time-entries?date=YYYY-MM-DD
  * POST /api/data/time-entries - approve suggestion and save as time entry
+ * Requires X-User-Id header or userId query.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
+import { getUserIdFromRequest } from "@/lib/api";
+import {
+  getTimeEntries,
+  saveTimeEntry,
+  getSuggestedEntryById,
+  saveSuggestedEntry,
+  getRawEventsByIds,
+  getCases,
+  getSettings,
+  saveCase,
+} from "@/lib/data-store";
+import { getOutlookTokens } from "@/lib/outlook-store";
+import {
+  getExternalEmailsFromEvent,
+  mergeExternalEmailsIntoCase,
+} from "@/lib/case-emails";
 import type { TimeEntry, SuggestedEntry } from "@/types";
 
 function generateId(): string {
@@ -12,9 +28,12 @@ function generateId(): string {
 }
 
 export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date");
-  const userId = searchParams.get("userId") ?? "demo-user";
 
   if (!date) {
     return NextResponse.json(
@@ -23,13 +42,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const entries = demoStore.timeEntries.filter(
-    (e) => e.userId === userId && e.date === date
-  );
+  const entries = await getTimeEntries(userId, date);
   return NextResponse.json(entries);
 }
 
 export async function POST(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const body = await request.json();
     const { action, suggestedEntry, caseId, durationHoursTenths, description, billable } =
@@ -50,15 +71,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "reject") {
-      const idx = demoStore.suggestedEntries.findIndex(
-        (e) => e.id === suggestedEntry.id
-      );
-      if (idx >= 0) {
-        demoStore.suggestedEntries[idx] = {
-          ...demoStore.suggestedEntries[idx],
-          status: "rejected",
+      const entry = await getSuggestedEntryById(suggestedEntry.id);
+      if (entry && entry.userId === userId) {
+        const updated = {
+          ...entry,
+          status: "rejected" as const,
           updatedAt: new Date().toISOString(),
         };
+        await saveSuggestedEntry(updated);
       }
       return NextResponse.json({ success: true });
     }
@@ -71,10 +91,13 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (suggestedEntry.userId !== userId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
       const entry: TimeEntry = {
         id: generateId(),
-        userId: suggestedEntry.userId,
+        userId,
         caseId: finalCaseId,
         date: suggestedEntry.date,
         startTime: suggestedEntry.startTime,
@@ -88,18 +111,38 @@ export async function POST(request: NextRequest) {
         updatedAt: new Date().toISOString(),
       };
 
-      demoStore.timeEntries.push(entry);
+      await saveTimeEntry(entry);
 
-      const idx = demoStore.suggestedEntries.findIndex(
-        (e) => e.id === suggestedEntry.id
-      );
-      if (idx >= 0) {
-        demoStore.suggestedEntries[idx] = {
-          ...demoStore.suggestedEntries[idx],
-          status: "approved",
+      // Add external emails from source events to the case
+      if (suggestedEntry.sourceEventIds?.length) {
+        const [rawEvents, cases, settings] = await Promise.all([
+          getRawEventsByIds(userId, suggestedEntry.sourceEventIds),
+          getCases(userId),
+          getSettings(userId),
+        ]);
+        const userEmail =
+          (await getOutlookTokens(userId, request))?.email ??
+          settings.userEmail;
+        const caseData = cases.find((c) => c.id === finalCaseId);
+        if (caseData) {
+          let newEmails: string[] = [];
+          for (const ev of rawEvents) {
+            newEmails.push(...getExternalEmailsFromEvent(ev, userEmail));
+          }
+          const caseUpdated = mergeExternalEmailsIntoCase(caseData, newEmails);
+          if (caseUpdated) await saveCase(caseUpdated);
+        }
+      }
+
+      const sugEntry = await getSuggestedEntryById(suggestedEntry.id);
+      if (sugEntry && sugEntry.userId === userId) {
+        const updated = {
+          ...sugEntry,
+          status: "approved" as const,
           caseId: finalCaseId,
           updatedAt: new Date().toISOString(),
         };
+        await saveSuggestedEntry(updated);
       }
 
       return NextResponse.json({ success: true, entry });

@@ -164,6 +164,14 @@ describe("matchEmailToCase", () => {
     });
     expect(matchEmailToCase(event, cases, contacts)).toBe("c1");
   });
+  it("matches by case number in subject (primary indicator)", () => {
+    const event = makeEvent({
+      type: "email_reply_sent",
+      title: "Re: Matter 001 - Discovery response",
+      metadata: { from: "other@example.com" },
+    });
+    expect(matchEmailToCase(event, cases, contacts)).toBe("c1");
+  });
   it("returns undefined when no match", () => {
     const event = makeEvent({
       type: "email_reply_sent",

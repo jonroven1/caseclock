@@ -91,6 +91,15 @@ function linkEventToCase(
   const title = (event.title ?? "").toLowerCase();
   const desc = (event.description ?? "").toLowerCase();
 
+  // Primary: case number in title or description
+  for (const c of cases) {
+    const caseNum = (c.caseNumber ?? c.matterNumber ?? "").trim();
+    if (caseNum) {
+      const numLower = caseNum.toLowerCase();
+      if (title.includes(numLower) || desc.includes(numLower)) return c.id;
+    }
+  }
+
   // Match by contact email
   const email = (meta.email ?? meta.from ?? meta.to ?? "") as string;
   if (email) {

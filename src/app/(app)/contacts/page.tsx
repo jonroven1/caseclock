@@ -4,26 +4,27 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/Card";
 import type { Contact } from "@/types";
 import type { Case } from "@/types";
-
-const userId = "demo-user";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
 
 export default function ContactsPage() {
+  const { fetchWithAuth, userId } = useAuthenticatedFetch();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCaseId, setFilterCaseId] = useState<string>("");
 
   useEffect(() => {
+    if (!userId) return;
     Promise.all([
-      fetch(`/api/data/contacts?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/data/cases?userId=${userId}`).then((r) => r.json()),
+      fetchWithAuth("/api/data/contacts").then((r) => r.json()),
+      fetchWithAuth("/api/data/cases").then((r) => r.json()),
     ])
       .then(([contactsData, casesData]) => {
         setContacts(contactsData);
         setCases(casesData);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [userId, fetchWithAuth]);
 
   const filtered = filterCaseId
     ? contacts.filter((c) => c.caseId === filterCaseId)

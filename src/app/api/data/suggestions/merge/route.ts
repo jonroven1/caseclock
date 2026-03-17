@@ -1,10 +1,16 @@
 /**
  * POST /api/data/suggestions/merge
  * Merge selected suggested entries into one
+ * Requires X-User-Id header or userId query.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
+import { getUserIdFromRequest } from "@/lib/api";
+import {
+  getSuggestedEntryById,
+  saveSuggestedEntry,
+  deleteSuggestedEntries,
+} from "@/lib/data-store";
 import type { SuggestedEntry } from "@/types";
 
 function generateId(): string {
@@ -12,6 +18,10 @@ function generateId(): string {
 }
 
 export async function POST(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const body = await request.json();
     const { ids } = body as { ids: string[] };
@@ -23,11 +33,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const entries = ids
-      .map((id) => demoStore.suggestedEntries.find((e) => e.id === id))
-      .filter((e): e is SuggestedEntry => e != null && e.status === "suggested");
+    const entries = (
+      await Promise.all(ids.map((id) => getSuggestedEntryById(id)))
+    ).filter(
+      (e): e is SuggestedEntry => e != null && e.status === "suggested"
+    );
 
-    if (entries.length !== ids.length) {
+    const allOwned = entries.every((e) => e.userId === userId);
+    if (!allOwned || entries.length !== ids.length) {
       return NextResponse.json(
         { error: "Some entries not found or not in suggested status" },
         { status: 400 }
@@ -65,14 +78,8 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
-    demoStore.suggestedEntries = demoStore.suggestedEntries.filter(
-      (e) => !ids.includes(e.id)
-    );
-    demoStore.suggestedEntries.push(merged);
-    demoStore.suggestedEntries.sort(
-      (a, b) =>
-        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-    );
+    await deleteSuggestedEntries(ids);
+    await saveSuggestedEntry(merged);
 
     return NextResponse.json({ success: true, entry: merged });
   } catch (err) {

@@ -1,10 +1,16 @@
 /**
  * POST /api/data/suggestions/split
  * Split a suggested entry into two
+ * Requires X-User-Id header or userId query.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
+import { getUserIdFromRequest } from "@/lib/api";
+import {
+  getSuggestedEntryById,
+  saveSuggestedEntry,
+  deleteSuggestedEntries,
+} from "@/lib/data-store";
 import type { SuggestedEntry } from "@/types";
 
 function generateId(): string {
@@ -12,6 +18,10 @@ function generateId(): string {
 }
 
 export async function POST(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const body = await request.json();
     const { id, firstTenths } = body as { id: string; firstTenths: number };
@@ -23,12 +33,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const idx = demoStore.suggestedEntries.findIndex((e) => e.id === id);
-    if (idx < 0) {
+    const entry = await getSuggestedEntryById(id);
+    if (!entry) {
       return NextResponse.json({ error: "Entry not found" }, { status: 404 });
     }
-
-    const entry = demoStore.suggestedEntries[idx];
+    if (entry.userId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     if (entry.status !== "suggested") {
       return NextResponse.json(
         { error: "Can only split suggested entries" },
@@ -84,14 +95,9 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
-    demoStore.suggestedEntries = demoStore.suggestedEntries.filter(
-      (e) => e.id !== id
-    );
-    demoStore.suggestedEntries.push(first, second);
-    demoStore.suggestedEntries.sort(
-      (a, b) =>
-        new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-    );
+    await deleteSuggestedEntries([id]);
+    await saveSuggestedEntry(first);
+    await saveSuggestedEntry(second);
 
     return NextResponse.json({
       success: true,

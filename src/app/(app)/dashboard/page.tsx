@@ -3,31 +3,40 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import Link from "next/link";
-
-const userId = "demo-user";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
 
 export default function DashboardPage() {
+  const { fetchWithAuth, userId } = useAuthenticatedFetch();
   const [today, setToday] = useState("");
   const [suggestedHours, setSuggestedHours] = useState(0);
   const [approvedHours, setApprovedHours] = useState(0);
   const [unreviewedCount, setUnreviewedCount] = useState(0);
   const [eventCount, setEventCount] = useState(0);
+  const [outlookConnected, setOutlookConnected] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
+    if (!userId) return;
+    fetchWithAuth("/api/outlook/status")
+      .then((r) => r.json())
+      .then((d) => setOutlookConnected(d.connected))
+      .catch(() => setOutlookConnected(false));
+  }, [userId, fetchWithAuth]);
+
+  useEffect(() => {
+    if (!userId) return;
     const d = new Date();
     const dateStr = d.toISOString().slice(0, 10);
     setToday(dateStr);
 
     Promise.all([
-      fetch(`/api/data/suggestions?date=${dateStr}&userId=${userId}`).then(
-        (r) => r.json()
-      ),
-      fetch(`/api/data/time-entries?date=${dateStr}&userId=${userId}`).then(
-        (r) => r.json()
-      ),
-      fetch(`/api/data/events?date=${dateStr}&userId=${userId}`).then((r) =>
+      fetchWithAuth(`/api/data/suggestions?date=${dateStr}`).then((r) =>
         r.json()
       ),
+      fetchWithAuth(`/api/data/time-entries?date=${dateStr}`).then((r) =>
+        r.json()
+      ),
+      fetchWithAuth(`/api/data/events?date=${dateStr}`).then((r) => r.json()),
     ]).then(([suggestions, entries, events]) => {
       const pending = suggestions.filter(
         (s: { status?: string }) => s.status === "suggested"
@@ -49,7 +58,7 @@ export default function DashboardPage() {
       setUnreviewedCount(pending.length);
       setEventCount(events.length);
     });
-  }, []);
+  }, [userId, fetchWithAuth]);
 
   return (
     <div className="space-y-6">
@@ -114,6 +123,59 @@ export default function DashboardPage() {
 
       <Card className="border-slate-200 shadow-sm">
         <CardHeader
+          title="Connect Outlook"
+          subtitle="Sync calendar and email from your Microsoft account"
+        />
+        <CardContent>
+          {outlookConnected ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={async () => {
+                  setSyncing(true);
+                  try {
+                    const dateStr = today || new Date().toISOString().slice(0, 10);
+                    const res = await fetchWithAuth(
+                      `/api/outlook/sync?date=${dateStr}`,
+                      { method: "POST" }
+                    );
+                    const data = await res.json();
+                    if (res.ok) {
+                      window.location.reload();
+                    }
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+                disabled={syncing}
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {syncing ? "Syncing..." : "Sync today"}
+              </button>
+              <Link
+                href="/settings"
+                className="text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                Manage in Settings
+              </Link>
+            </div>
+          ) : (
+            <div>
+              <a
+                href={userId ? `/api/auth/outlook?userId=${userId}` : "#"}
+                className="inline-flex items-center rounded-xl bg-[#0078d4] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-[#106ebe] disabled:opacity-50"
+              >
+                Connect Outlook
+              </a>
+              <p className="mt-2 text-sm text-slate-500">
+                Sign in with Microsoft to sync calendar and email.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader
           title="Quick actions"
           subtitle="Review and approve your time"
           action={
@@ -159,7 +221,7 @@ export default function DashboardPage() {
                 onClick={async () => {
                   const dateStr =
                     today || new Date().toISOString().slice(0, 10);
-                  const res = await fetch(`/api/seed?date=${dateStr}`, {
+                  const res = await fetchWithAuth(`/api/seed?date=${dateStr}`, {
                     method: "POST",
                   });
                   const data = await res.json();

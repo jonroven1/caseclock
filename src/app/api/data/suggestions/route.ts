@@ -1,6 +1,7 @@
 /**
- * GET /api/data/suggestions?date=YYYY-MM-DD&userId=demo-user
+ * GET /api/data/suggestions?date=YYYY-MM-DD
  * Returns suggested entries for a day (from store or reconstructs)
+ * Requires X-User-Id header or userId query.
  *
  * PATCH /api/data/suggestions - Edit a suggested entry
  * POST /api/data/suggestions/merge - Merge selected entries
@@ -8,11 +9,24 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/firebase-admin";
-import { getMockRawEvents } from "@/lib/firebase-admin";
-import { demoStore } from "@/lib/demo-store";
-import { COLLECTIONS } from "@/lib/firestore";
 import { reconstructDay } from "@/services/reconstruction-engine";
+import { getUserIdFromRequest } from "@/lib/api";
+import {
+  getSuggestedEntries,
+  getRawEvents,
+  getRawEventsByIds,
+  getCases,
+  getContacts,
+  getSettings,
+  getSuggestedEntryById,
+  saveSuggestedEntry,
+  saveCase,
+} from "@/lib/data-store";
+import { getOutlookTokens } from "@/lib/outlook-store";
+import {
+  getExternalEmailsFromEvent,
+  mergeExternalEmailsIntoCase,
+} from "@/lib/case-emails";
 import type { SuggestedEntry } from "@/types";
 
 function generateId(): string {
@@ -20,9 +34,12 @@ function generateId(): string {
 }
 
 export async function GET(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date");
-  const userId = searchParams.get("userId") ?? "demo-user";
   const reconstruct = searchParams.get("reconstruct") === "true";
 
   if (!date) {
@@ -32,64 +49,64 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const db = await getDb();
-
-  if (db) {
-    const snapshot = await db
-      .collection(COLLECTIONS.SUGGESTED_ENTRIES)
-      .where("userId", "==", userId)
-      .where("date", "==", date)
-      .orderBy("startTime", "asc")
-      .get();
-    const entries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-    if (entries.length > 0) return NextResponse.json(entries);
-  }
-
-  let rawEvents = db
-    ? []
-    : getMockRawEvents().filter(
-        (e) =>
-          e.userId === userId &&
-          new Date(e.timestampStart).toISOString().startsWith(date)
-      );
-
-  if (rawEvents.length === 0) {
-    rawEvents = demoStore.rawEvents.filter(
-      (e) =>
-        e.userId === userId &&
-        new Date(e.timestampStart).toISOString().startsWith(date)
-    );
-  }
-
-  const stored = demoStore.suggestedEntries.filter(
-    (e) => e.userId === userId && e.date === date
-  );
+  const stored = await getSuggestedEntries(userId, date);
   if (stored.length > 0 && !reconstruct) {
     return NextResponse.json(stored);
   }
 
-  const settings = demoStore.settings[userId] ?? {
-    userId,
-    roundCallsToTenth: true,
-    defaultReplyTenths: 0.1,
-    defaultTravelBilling: 0.5,
-    autoApproveCalendarEvents: false,
-    timezone: "America/New_York",
-  };
+  const [rawEvents, cases, contacts, settings] = await Promise.all([
+    getRawEvents(userId, date),
+    getCases(userId),
+    getContacts(userId),
+    getSettings(userId),
+  ]);
 
   const result = reconstructDay({
     rawEvents,
-    cases: demoStore.cases,
-    contacts: demoStore.contacts,
+    cases,
+    contacts,
     settings,
     date,
     userId,
   });
 
+  // When an email is matched to a case, add external emails to the case (exclude internal/same-domain)
+  const userEmail =
+    (await getOutlookTokens(userId, request))?.email ??
+    settings.userEmail;
+  const casesById = new Map(cases.map((c) => [c.id, c]));
+  const eventsById = new Map(rawEvents.map((e) => [e.id, e]));
+  const emailsToAddByCase = new Map<string, string[]>();
+
+  for (const entry of result.suggestedEntries) {
+    if (!entry.caseId || !entry.sourceEventIds?.length) continue;
+    for (const eid of entry.sourceEventIds) {
+      const ev = eventsById.get(eid);
+      if (ev) {
+        const external = getExternalEmailsFromEvent(ev, userEmail);
+        if (external.length > 0) {
+          const existing = emailsToAddByCase.get(entry.caseId) ?? [];
+          emailsToAddByCase.set(entry.caseId, [...existing, ...external]);
+        }
+      }
+    }
+  }
+
+  for (const [caseId, newEmails] of emailsToAddByCase) {
+    const caseData = casesById.get(caseId);
+    if (!caseData) continue;
+    const updated = mergeExternalEmailsIntoCase(caseData, newEmails);
+    if (updated) await saveCase(updated);
+  }
+
   return NextResponse.json(result.suggestedEntries);
 }
 
 export async function PATCH(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const body = await request.json();
     const {
@@ -110,18 +127,20 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    const idx = demoStore.suggestedEntries.findIndex((e) => e.id === id);
-    if (idx < 0) {
+    const entry = await getSuggestedEntryById(id);
+    if (!entry) {
       return NextResponse.json({ error: "Entry not found" }, { status: 404 });
     }
+    if (entry.userId !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-    const entry = demoStore.suggestedEntries[idx];
     const start = new Date(entry.startTime);
     const durationMs =
       (durationHoursTenths ?? entry.durationHoursTenths) * 60 * 60 * 1000;
     const end = new Date(start.getTime() + durationMs);
 
-    demoStore.suggestedEntries[idx] = {
+    const updated: SuggestedEntry = {
       ...entry,
       ...(caseId !== undefined && { caseId }),
       ...(description !== undefined && { description }),
@@ -134,10 +153,31 @@ export async function PATCH(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
-    return NextResponse.json({
-      success: true,
-      entry: demoStore.suggestedEntries[idx],
-    });
+    await saveSuggestedEntry(updated);
+
+    // When caseId is assigned, add external emails from source events to the case
+    const finalCaseId = caseId ?? entry.caseId;
+    if (finalCaseId && entry.sourceEventIds?.length) {
+      const [rawEvents, cases, settings] = await Promise.all([
+        getRawEventsByIds(userId, entry.sourceEventIds),
+        getCases(userId),
+        getSettings(userId),
+      ]);
+      const userEmail =
+        (await getOutlookTokens(userId, request))?.email ??
+        settings.userEmail;
+      const caseData = cases.find((c) => c.id === finalCaseId);
+      if (caseData) {
+        let newEmails: string[] = [];
+        for (const ev of rawEvents) {
+          newEmails.push(...getExternalEmailsFromEvent(ev, userEmail));
+        }
+        const caseUpdated = mergeExternalEmailsIntoCase(caseData, newEmails);
+        if (caseUpdated) await saveCase(caseUpdated);
+      }
+    }
+
+    return NextResponse.json({ success: true, entry: updated });
   } catch (err) {
     console.error("Patch suggestion error:", err);
     return NextResponse.json(

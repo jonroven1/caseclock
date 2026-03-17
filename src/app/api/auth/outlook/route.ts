@@ -1,15 +1,21 @@
 /**
- * GET /api/auth/outlook
- * Initiates Microsoft OAuth - redirects to Microsoft login
+ * GET /api/auth/outlook?userId=...
+ * Initiates Microsoft OAuth - redirects to Microsoft login.
+ * userId must be provided (authenticated user's uid).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getOutlookAuthUrl } from "@/lib/outlook-auth";
+import { getUserIdFromRequest } from "@/lib/api";
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId") ?? "demo-user";
+    const userId = getUserIdFromRequest(request);
+    if (!userId) {
+      return NextResponse.redirect(
+        new URL("/login?error=unauthorized", request.url)
+      );
+    }
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
     const redirectUri = `${baseUrl}/api/auth/outlook/callback`;

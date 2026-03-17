@@ -1,16 +1,20 @@
 /**
- * POST /api/outlook/disconnect?userId=demo-user
- * Disconnects Outlook and clears stored tokens
+ * POST /api/outlook/disconnect
+ * Disconnects Outlook and clears stored tokens.
+ * Requires X-User-Id header or userId query.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { clearOutlookTokens } from "@/lib/outlook-store";
+import { clearOutlookTokensInResponse } from "@/lib/outlook-store";
+import { getUserIdFromRequest } from "@/lib/api";
 
 export async function POST(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId") ?? "demo-user";
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  clearOutlookTokens(userId);
-
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+  await clearOutlookTokensInResponse(response, request, userId);
+  return response;
 }

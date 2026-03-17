@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { RawEvent } from "@/types";
-
-const userId = "demo-user";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
 
 const eventTypeConfig: Record<
   string,
@@ -65,6 +64,7 @@ function getConfig(type: string) {
 }
 
 export default function TimelinePage() {
+  const { fetchWithAuth, userId } = useAuthenticatedFetch();
   const [date, setDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -72,12 +72,13 @@ export default function TimelinePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!userId) return;
     setLoading(true);
-    fetch(`/api/data/events?date=${date}&userId=${userId}`)
+    fetchWithAuth(`/api/data/events?date=${date}`)
       .then((r) => r.json())
       .then(setEvents)
       .finally(() => setLoading(false));
-  }, [date]);
+  }, [date, userId, fetchWithAuth]);
 
   return (
     <div className="space-y-6">

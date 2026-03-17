@@ -6,10 +6,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditEntryModal } from "@/components/suggestions/EditEntryModal";
 import { ConfidenceIndicator } from "@/components/suggestions/ConfidenceIndicator";
+import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
 import type { SuggestedEntry } from "@/types";
 import type { Case } from "@/types";
-
-const userId = "demo-user";
 
 function getSplitOptions(total: number) {
   const opts: number[] = [];
@@ -20,6 +19,7 @@ function getSplitOptions(total: number) {
 }
 
 export default function SuggestionsPage() {
+  const { fetchWithAuth, userId } = useAuthenticatedFetch();
   const [date, setDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -33,24 +33,19 @@ export default function SuggestionsPage() {
   const [splitEntry, setSplitEntry] = useState<SuggestedEntry | null>(null);
   const [splitFirstTenths, setSplitFirstTenths] = useState(0.1);
 
-  const fetchData = () => {
+  useEffect(() => {
+    if (!userId) return;
     setLoading(true);
     Promise.all([
-      fetch(`/api/data/suggestions?date=${date}&userId=${userId}`).then((r) =>
-        r.json()
-      ),
-      fetch(`/api/data/cases?userId=${userId}`).then((r) => r.json()),
+      fetchWithAuth(`/api/data/suggestions?date=${date}`).then((r) => r.json()),
+      fetchWithAuth("/api/data/cases").then((r) => r.json()),
     ])
       .then(([sugs, casesData]) => {
         setSuggestions(sugs);
         setCases(casesData);
       })
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [date]);
+  }, [date, userId, fetchWithAuth]);
 
   const handleApprove = async (
     entry: SuggestedEntry,
@@ -72,7 +67,7 @@ export default function SuggestionsPage() {
     }
     setAssigning(entry.id);
     try {
-      const res = await fetch("/api/data/time-entries", {
+      const res = await fetchWithAuth("/api/data/time-entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -106,7 +101,7 @@ export default function SuggestionsPage() {
   const handleReject = async (entry: SuggestedEntry) => {
     setAssigning(entry.id);
     try {
-      await fetch("/api/data/time-entries", {
+      await fetchWithAuth("/api/data/time-entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reject", suggestedEntry: entry }),
@@ -132,7 +127,7 @@ export default function SuggestionsPage() {
     billable: boolean;
   }) => {
     if (!editEntry) return;
-    const res = await fetch("/api/data/suggestions", {
+    const res = await fetchWithAuth("/api/data/suggestions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -159,7 +154,7 @@ export default function SuggestionsPage() {
 
   const handleMerge = async () => {
     if (selectedIds.size < 2) return;
-    const res = await fetch("/api/data/suggestions/merge", {
+    const res = await fetchWithAuth("/api/data/suggestions/merge", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: Array.from(selectedIds) }),
@@ -184,7 +179,7 @@ export default function SuggestionsPage() {
       alert("Each part must be at least 0.1 hrs");
       return;
     }
-    const res = await fetch("/api/data/suggestions/split", {
+    const res = await fetchWithAuth("/api/data/suggestions/split", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

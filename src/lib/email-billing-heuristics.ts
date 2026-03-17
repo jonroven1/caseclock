@@ -125,9 +125,10 @@ export const INTERVENING_EVENTS_CONFIDENCE_PENALTY = 0.1;
 
 /**
  * Match an email event to a case using:
+ * - Case number in subject (primary indicator)
  * - Contact email (from, to in metadata)
- * - Thread metadata (threadId, subject)
- * - Subject line / title containing case or client name
+ * - Case emails (imported emails 1–6)
+ * - Subject/title containing case, client, defendant, or defense counsel name
  */
 export function matchEmailToCase(
   event: RawEvent,
@@ -138,30 +139,45 @@ export function matchEmailToCase(
 
   const meta = event.metadata ?? {};
   const title = (event.title ?? "").toLowerCase();
-  const threadId = meta.threadId as string | undefined;
-
-  // Match by contact email (from or to)
   const from = (meta.from ?? meta.email ?? "") as string;
   const to = (meta.to ?? "") as string;
-  const emails = [from, to].filter(Boolean);
+  const eventEmails = [from, to].filter(Boolean).map((e) => e.toLowerCase());
 
-  for (const email of emails) {
+  // Primary: case number in subject line
+  for (const c of cases) {
+    const caseNum = (c.caseNumber ?? c.matterNumber ?? "").trim();
+    if (caseNum && title.includes(caseNum.toLowerCase())) return c.id;
+  }
+
+  // Match by contact email (from or to)
+  for (const email of eventEmails) {
     const contact = contacts.find(
-      (c) => c.email && c.email.toLowerCase() === email.toLowerCase()
+      (c) => c.email && c.email.toLowerCase() === email
     );
     if (contact) return contact.caseId;
   }
 
-  // Match by case/client name in subject/title
+  // Match by case emails (imported emails 1–6)
+  for (const c of cases) {
+    const caseEmails = (c.emails ?? []).map((e) => e.toLowerCase());
+    if (eventEmails.some((e) => caseEmails.includes(e))) return c.id;
+  }
+
+  // Match by case/client/defendant/defense counsel name in subject/title
   for (const c of cases) {
     const caseName = c.caseName.toLowerCase();
     const clientName = c.clientName.toLowerCase();
     if (title.includes(caseName) || title.includes(clientName)) return c.id;
-  }
 
-  // Thread metadata could be used for future thread-to-case mapping
-  if (threadId) {
-    // Placeholder: could look up threadId -> caseId from a mapping table
+    const defendantName = (c.defendantName ?? "").toLowerCase();
+    const defendantFirst = (c.defendantFirstName ?? "").toLowerCase();
+    const defendantLast = (c.defendantLastName ?? "").toLowerCase();
+    const defenseCounsel = (c.defenseCounsel ?? "").toLowerCase();
+
+    if (defendantName && title.includes(defendantName)) return c.id;
+    if (defendantFirst && title.includes(defendantFirst)) return c.id;
+    if (defendantLast && title.includes(defendantLast)) return c.id;
+    if (defenseCounsel && title.includes(defenseCounsel)) return c.id;
   }
 
   return undefined;

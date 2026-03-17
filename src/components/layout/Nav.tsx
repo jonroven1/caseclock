@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -10,11 +11,17 @@ const navItems = [
   { href: "/cases", label: "Cases" },
   { href: "/contacts", label: "Contacts" },
   { href: "/settings", label: "Settings" },
-  { href: "/login", label: "Sign in" },
 ];
 
 export function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+  };
 
   return (
     <div className="flex flex-1 flex-wrap justify-center gap-1 overflow-x-auto md:flex-col md:flex-nowrap md:overflow-visible md:py-4">
@@ -34,6 +41,22 @@ export function Nav() {
           </Link>
         );
       })}
+      {user ? (
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="shrink-0 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 md:mx-2 md:px-3 md:py-2.5 md:text-sm"
+        >
+          Sign out
+        </button>
+      ) : (
+        <Link
+          href="/login"
+          className="shrink-0 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 md:mx-2 md:px-3 md:py-2.5 md:text-sm"
+        >
+          Sign in
+        </Link>
+      )}
     </div>
   );
 }

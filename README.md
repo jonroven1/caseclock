@@ -63,6 +63,13 @@ Use today's date or any `YYYY-MM-DD` format.
 2. Add your Firebase project credentials
 3. Without Firebase, the app uses an in-memory demo store
 
+### Firestore indexes
+
+Compound indexes are defined in `firestore.indexes.json`. To deploy them:
+
+1. **Firebase CLI**: Run `firebase deploy --only firestore:indexes` (requires `firebase init` and `.firebaserc` with your project ID).
+2. **Firebase Console**: Go to [Firebase Console](https://console.firebase.google.com) → your project → Firestore → Indexes. When a query fails, Firestore returns an error with a link to create the missing index.
+
 ## Project Structure
 
 ```

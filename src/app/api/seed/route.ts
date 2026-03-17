@@ -1,11 +1,19 @@
 /**
  * POST /api/seed?date=YYYY-MM-DD
- * Seeds demo data for a plaintiff-side employment lawyer
+ * Seeds demo data for a plaintiff-side employment lawyer.
+ * Requires X-User-Id header or userId query (authenticated user).
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
 import { reconstructDay } from "@/services/reconstruction-engine";
+import { getUserIdFromRequest } from "@/lib/api";
+import {
+  saveCase,
+  saveContact,
+  saveRawEvent,
+  saveSettings,
+  saveSuggestedEntry,
+} from "@/lib/data-store";
 import type {
   RawEvent,
   Case,
@@ -13,16 +21,14 @@ import type {
   UserSettings,
 } from "@/types";
 
-const userId = "demo-user";
-
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function seedCases(): Case[] {
+function seedCases(userId: string): Case[] {
   const cases: Case[] = [
     {
-      id: "case_henderson_termination",
+      id: "1000001",
       userId,
       caseName: "Henderson v. TechStart Inc.",
       matterNumber: "2024-101",
@@ -31,7 +37,7 @@ function seedCases(): Case[] {
       createdAt: new Date().toISOString(),
     },
     {
-      id: "case_williams_wage",
+      id: "1000002",
       userId,
       caseName: "Williams et al. v. Metro Foods",
       matterNumber: "2024-102",
@@ -40,7 +46,7 @@ function seedCases(): Case[] {
       createdAt: new Date().toISOString(),
     },
     {
-      id: "case_rodriguez_discrimination",
+      id: "1000003",
       userId,
       caseName: "Rodriguez v. Global Retail Corp",
       matterNumber: "2024-103",
@@ -49,11 +55,10 @@ function seedCases(): Case[] {
       createdAt: new Date().toISOString(),
     },
   ];
-  demoStore.cases = cases;
   return cases;
 }
 
-function seedContacts(cases: Case[]): Contact[] {
+function seedContacts(cases: Case[], userId: string): Contact[] {
   const contacts: Contact[] = [
     {
       id: generateId("contact"),
@@ -98,11 +103,10 @@ function seedContacts(cases: Case[]): Contact[] {
       role: "Agency",
     },
   ];
-  demoStore.contacts = contacts;
   return contacts;
 }
 
-function seedRawEvents(date: string): RawEvent[] {
+function seedRawEvents(date: string, userId: string): RawEvent[] {
   const base = new Date(`${date}T08:30:00`);
   const ev = (
     type: RawEvent["type"],
@@ -199,12 +203,10 @@ function seedRawEvents(date: string): RawEvent[] {
       timestampEnd: new Date(base.getTime() + 450 * 60 * 1000).toISOString(),
     }),
   ];
-
-  demoStore.rawEvents = events;
   return events;
 }
 
-function seedSettings(): UserSettings {
+function seedSettings(userId: string): UserSettings {
   const settings: UserSettings = {
     userId,
     roundCallsToTenth: true,
@@ -213,25 +215,29 @@ function seedSettings(): UserSettings {
     autoApproveCalendarEvents: false,
     timezone: "America/Los_Angeles",
   };
-  demoStore.settings[userId] = settings;
   return settings;
 }
 
 export async function POST(request: NextRequest) {
+  const userId = getUserIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
 
-  const cases = seedCases();
-  const contacts = seedContacts(cases);
-  seedRawEvents(date);
-  const settings = seedSettings();
+  const cases = seedCases(userId);
+  const contacts = seedContacts(cases, userId);
+  const events = seedRawEvents(date, userId);
+  const settings = seedSettings(userId);
 
-  const rawEvents = demoStore.rawEvents.filter((e) =>
-    new Date(e.timestampStart).toISOString().startsWith(date)
-  );
+  for (const c of cases) await saveCase(c);
+  for (const c of contacts) await saveContact(c);
+  for (const e of events) await saveRawEvent(e);
+  await saveSettings(settings);
 
   const result = reconstructDay({
-    rawEvents,
+    rawEvents: events,
     cases,
     contacts,
     settings,
@@ -239,14 +245,14 @@ export async function POST(request: NextRequest) {
     userId,
   });
 
-  demoStore.suggestedEntries = result.suggestedEntries;
+  for (const e of result.suggestedEntries) await saveSuggestedEntry(e);
 
   return NextResponse.json({
     success: true,
     date,
     cases: cases.length,
     contacts: contacts.length,
-    events: rawEvents.length,
+    events: events.length,
     suggestions: result.suggestedEntries.length,
   });
 }
