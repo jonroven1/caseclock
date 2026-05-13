@@ -375,8 +375,15 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (err) {
     console.error("Outlook sync error:", err);
+    const detail =
+      err instanceof Error
+        ? err.message.slice(0, 400)
+        : String(err).slice(0, 400);
     return NextResponse.json(
-      { error: "Sync failed. Try reconnecting Outlook." },
+      {
+        error: "Sync failed. Try reconnecting Outlook.",
+        detail,
+      },
       { status: 500 }
     );
   }

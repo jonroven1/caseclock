@@ -13,13 +13,23 @@ export async function parseApiJson<T = unknown>(res: Response): Promise<T> {
     }
   }
   if (!res.ok) {
-    const msg =
+    let msg =
       typeof data === "object" &&
       data !== null &&
       "error" in data &&
       typeof (data as { error: unknown }).error === "string"
         ? (data as { error: string }).error
         : `Request failed (${res.status})`;
+    const detail =
+      typeof data === "object" &&
+      data !== null &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+        ? (data as { detail: string }).detail.trim()
+        : "";
+    if (detail && detail !== msg) {
+      msg = `${msg} — ${detail}`;
+    }
     throw new Error(msg);
   }
   return data as T;

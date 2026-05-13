@@ -93,6 +93,11 @@ async function initFirebaseAdmin(): Promise<typeof db> {
       });
     }
     db = getFirestore();
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      /* settings() may only apply once per process */
+    }
     return db;
   } catch (e) {
     console.warn("Firebase Admin init failed:", e);
