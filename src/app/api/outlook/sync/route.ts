@@ -29,6 +29,7 @@ import {
   getOutlookGraphAccessToken,
   persistRefreshedOutlookTokens,
 } from "@/lib/outlook-token-session";
+import { getOutlookConnectionDiagnostics } from "@/lib/outlook-store";
 import { outlookStableEventDocId } from "@/lib/outlook-engagement-ids";
 
 function generateId(): string {
@@ -94,8 +95,16 @@ export async function POST(request: NextRequest) {
 
   const tokenResult = await getOutlookGraphAccessToken(request, userId);
   if (!tokenResult) {
+    const diagnostics = await getOutlookConnectionDiagnostics(
+      userId,
+      request
+    );
     return NextResponse.json(
-      { error: "Outlook not connected. Connect in Settings first." },
+      {
+        error: "Outlook not connected. Connect in Settings first.",
+        code: "NO_OUTLOOK_TOKENS",
+        diagnostics,
+      },
       { status: 401 }
     );
   }

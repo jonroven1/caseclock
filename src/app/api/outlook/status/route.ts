@@ -5,7 +5,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { isOutlookConnected } from "@/lib/outlook-store";
+import {
+  isOutlookConnected,
+  getOutlookConnectionDiagnostics,
+} from "@/lib/outlook-store";
 import { getUserIdFromRequest } from "@/lib/api";
 
 export async function GET(request: NextRequest) {
@@ -15,5 +18,6 @@ export async function GET(request: NextRequest) {
   }
 
   const connected = await isOutlookConnected(userId, request);
-  return NextResponse.json({ connected });
+  const diagnostics = await getOutlookConnectionDiagnostics(userId, request);
+  return NextResponse.json({ connected, diagnostics });
 }

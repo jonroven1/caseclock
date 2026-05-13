@@ -87,7 +87,41 @@ export async function getOutlookTokens(
   return null;
 }
 
-/** Write tokens - Firestore when configured, else cookie */
+/** Non-sensitive fields for troubleshooting Outlook sync failures. */
+export async function getOutlookConnectionDiagnostics(
+  userId: string,
+  request: NextRequest
+): Promise<{
+  firebaseAdminConfigured: boolean;
+  tokenDocInFirestore: boolean;
+  outlookCookiePresent: boolean;
+  tokenDecodedForUserFromCookie: boolean;
+}> {
+  const db = await getDb();
+  const firebaseAdminConfigured = db !== null;
+
+  let tokenDocInFirestore = false;
+  if (db) {
+    const snap = await db
+      .collection(COLLECTIONS.OUTLOOK_TOKENS)
+      .doc(userId)
+      .get();
+    tokenDocInFirestore = snap.exists;
+  }
+
+  const outlookCookiePresent = !!request.cookies.get(COOKIE_NAME)?.value;
+  const map = getTokenMapFromRequest(request);
+  const tokenDecodedForUserFromCookie = !!(map[userId]?.refreshToken);
+
+  return {
+    firebaseAdminConfigured,
+    tokenDocInFirestore,
+    outlookCookiePresent,
+    tokenDecodedForUserFromCookie,
+  };
+}
+
+/** Write tokens - Firestore and/or cookie */
 export async function setOutlookTokensInResponse(
   response: NextResponse,
   request: NextRequest,
@@ -157,6 +191,10 @@ export async function isOutlookConnected(
   request?: NextRequest
 ): Promise<boolean> {
   const t = await getOutlookTokens(userId, request);
-  if (!t) return false;
-  return t.expiresAt > Date.now() / 1000 + 300;
+  /** Expired access token is ok — we refresh with refresh_token. */
+  return (
+    t != null &&
+    typeof t.refreshToken === "string" &&
+    t.refreshToken.length > 0
+  );
 }
