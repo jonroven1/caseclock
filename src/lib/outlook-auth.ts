@@ -10,7 +10,6 @@ const MICROSOFT_SCOPES = [
   "email",
   "profile",
   "Mail.Read",
-  "Calendars.Read",
   "offline_access",
 ].join(" ");
 

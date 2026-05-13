@@ -135,7 +135,7 @@ export default function DashboardPage() {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader
           title="Connect Outlook"
-          subtitle="Sync calendar and email from your Microsoft account"
+          subtitle="Sync email from your Microsoft account"
         />
         <CardContent>
           {outlookConnected ? (
@@ -186,7 +186,7 @@ export default function DashboardPage() {
                 Connect Outlook
               </a>
               <p className="mt-2 text-sm text-slate-500">
-                Sign in with Microsoft to sync calendar and email.
+                Sign in with Microsoft to sync email.
               </p>
             </div>
           )}

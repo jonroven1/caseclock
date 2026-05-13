@@ -156,7 +156,7 @@ export default function SettingsPage() {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader
           title="Connect Outlook"
-          subtitle="Sign in with your Microsoft account to sync calendar and email"
+          subtitle="Sign in with your Microsoft account to sync email"
         />
         <CardContent className="space-y-4">
           {message && (
@@ -203,7 +203,7 @@ export default function SettingsPage() {
               </Button>
               <p className="mt-2 text-sm text-slate-500">
                 You&apos;ll sign in with Microsoft on your phone or browser.
-                CaseClock will request access to Mail and Calendar (read only).
+                CaseClock will request read-only Mail access.
               </p>
             </div>
           )}

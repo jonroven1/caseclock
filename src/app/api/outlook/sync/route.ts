@@ -1,6 +1,6 @@
 /**
  * POST /api/outlook/sync
- * Fetches calendar events and mail from Microsoft Graph.
+ * Fetches mail from Microsoft Graph (inbox, sent, drafts); does not sync calendar.
  * Query params:
  *   - date=YYYY-MM-DD (single day, default: today)
  *   - startDate=YYYY-MM-DD&endDate=YYYY-MM-DD (date range)
@@ -120,48 +120,6 @@ export async function POST(request: NextRequest) {
     const startIso = rangeStart.toISOString();
     const endIso = rangeEnd.toISOString();
     let eventCount = 0;
-
-    // Fetch calendar events for the range
-    const calendarRes = await fetch(
-      `${GRAPH_BASE}/me/calendarView?startDateTime=${encodeURIComponent(startIso)}&endDateTime=${encodeURIComponent(endIso)}`,
-      { headers }
-    );
-
-    if (calendarRes.ok) {
-      const calData = (await calendarRes.json()) as {
-        value?: Array<{
-          id: string;
-          subject: string;
-          start: { dateTime: string };
-          end: { dateTime: string };
-          bodyPreview?: string;
-          location?: { displayName?: string };
-        }>;
-      };
-
-      for (const ev of calData.value ?? []) {
-        const exists = await hasRawEventByGraphId(userId, ev.id);
-        if (exists) continue;
-        const rawEvent: RawEvent = {
-          id: generateId(),
-          userId,
-          source: "calendar",
-          type: "calendar_event",
-          title: ev.subject ?? "Calendar event",
-          description: ev.bodyPreview,
-          timestampStart: ev.start.dateTime,
-          timestampEnd: ev.end.dateTime,
-          metadata: {
-            location: ev.location?.displayName,
-            graphId: ev.id,
-          },
-          confidence: 0.9,
-          createdAt: new Date().toISOString(),
-        };
-        await saveRawEvent(rawEvent);
-        eventCount++;
-      }
-    }
 
     const graphMailFields =
       "id,subject,receivedDateTime,sentDateTime,from,toRecipients,internetMessageId,hasAttachments,conversationId,isRead,lastModifiedDateTime";
