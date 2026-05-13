@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import Link from "next/link";
 import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
+import { parseApiJson } from "@/lib/parse-api-json";
+import { stashOutlookOAuthUserId } from "@/lib/outlook-oauth-bridge";
 
 export default function DashboardPage() {
   const { fetchWithAuth, userId } = useAuthenticatedFetch();
@@ -18,8 +20,8 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!userId) return;
     fetchWithAuth("/api/outlook/status")
-      .then((r) => r.json())
-      .then((d) => setOutlookConnected(d.connected))
+      .then((r) => parseApiJson<{ connected?: boolean }>(r))
+      .then((d) => setOutlookConnected(d.connected === true))
       .catch(() => setOutlookConnected(false));
   }, [userId, fetchWithAuth]);
 
@@ -31,33 +33,42 @@ export default function DashboardPage() {
 
     Promise.all([
       fetchWithAuth(`/api/data/suggestions?date=${dateStr}`).then((r) =>
-        r.json()
+        parseApiJson<unknown[]>(r)
       ),
       fetchWithAuth(`/api/data/time-entries?date=${dateStr}`).then((r) =>
-        r.json()
+        parseApiJson<unknown[]>(r)
       ),
-      fetchWithAuth(`/api/data/events?date=${dateStr}`).then((r) => r.json()),
-    ]).then(([suggestions, entries, events]) => {
-      const pending = suggestions.filter(
-        (s: { status?: string }) => s.status === "suggested"
-      );
-      setSuggestedHours(
-        suggestions.reduce(
-          (a: number, s: { durationHoursTenths?: number }) =>
-            a + (s.durationHoursTenths ?? 0),
-          0
-        )
-      );
-      setApprovedHours(
-        entries.reduce(
-          (a: number, e: { durationHoursTenths?: number }) =>
-            a + (e.durationHoursTenths ?? 0),
-          0
-        )
-      );
-      setUnreviewedCount(pending.length);
-      setEventCount(events.length);
-    });
+      fetchWithAuth(`/api/data/events?date=${dateStr}`).then((r) =>
+        parseApiJson<unknown[]>(r)
+      ),
+    ])
+      .then(([suggestions, entries, events]) => {
+        const s = Array.isArray(suggestions) ? suggestions : [];
+        const e = Array.isArray(entries) ? entries : [];
+        const ev = Array.isArray(events) ? events : [];
+        const pending = s.filter((x) => (x as { status?: string }).status === "suggested");
+        setSuggestedHours(
+          s.reduce(
+            (a: number, x) => a + ((x as { durationHoursTenths?: number }).durationHoursTenths ?? 0),
+            0
+          )
+        );
+        setApprovedHours(
+          e.reduce(
+            (a: number, x) => a + ((x as { durationHoursTenths?: number }).durationHoursTenths ?? 0),
+            0
+          )
+        );
+        setUnreviewedCount(pending.length);
+        setEventCount(ev.length);
+      })
+      .catch((err) => {
+        console.error("Dashboard data load failed:", err);
+        setSuggestedHours(0);
+        setApprovedHours(0);
+        setUnreviewedCount(0);
+        setEventCount(0);
+      });
   }, [userId, fetchWithAuth]);
 
   return (
@@ -133,15 +144,16 @@ export default function DashboardPage() {
                 onClick={async () => {
                   setSyncing(true);
                   try {
-                    const dateStr = today || new Date().toISOString().slice(0, 10);
+                    const dateStr =
+                      today || new Date().toISOString().slice(0, 10);
                     const res = await fetchWithAuth(
                       `/api/outlook/sync?date=${dateStr}`,
                       { method: "POST" }
                     );
-                    const data = await res.json();
-                    if (res.ok) {
-                      window.location.reload();
-                    }
+                    await parseApiJson(res);
+                    window.location.reload();
+                  } catch {
+                    /* Sync failed — check Outlook connection in Settings */
                   } finally {
                     setSyncing(false);
                   }
@@ -161,7 +173,14 @@ export default function DashboardPage() {
           ) : (
             <div>
               <a
-                href={userId ? `/api/auth/outlook?userId=${userId}` : "#"}
+                href={
+                  userId
+                    ? `/api/auth/outlook?userId=${encodeURIComponent(userId)}`
+                    : "#"
+                }
+                onClick={() => {
+                  if (userId) stashOutlookOAuthUserId(userId);
+                }}
                 className="inline-flex items-center rounded-xl bg-[#0078d4] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-[#106ebe] disabled:opacity-50"
               >
                 Connect Outlook
@@ -219,14 +238,19 @@ export default function DashboardPage() {
               </p>
               <button
                 onClick={async () => {
-                  const dateStr =
-                    today || new Date().toISOString().slice(0, 10);
-                  const res = await fetchWithAuth(`/api/seed?date=${dateStr}`, {
-                    method: "POST",
-                  });
-                  const data = await res.json();
-                  if (data.success) {
-                    window.location.reload();
+                  try {
+                    const dateStr =
+                      today || new Date().toISOString().slice(0, 10);
+                    const res = await fetchWithAuth(
+                      `/api/seed?date=${dateStr}`,
+                      { method: "POST" }
+                    );
+                    const data = await parseApiJson<{ success?: boolean }>(res);
+                    if (data.success) {
+                      window.location.reload();
+                    }
+                  } catch {
+                    /* ignore */
                   }
                 }}
                 className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"

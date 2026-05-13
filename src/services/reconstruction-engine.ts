@@ -83,7 +83,12 @@ function linkEventToCase(
   if (event.linkedCaseId) return event.linkedCaseId;
 
   // Email events use dedicated matching (contact email, thread, subject)
-  if (event.type === "email_received" || event.type === "email_reply_sent") {
+  if (
+    event.type === "email_received" ||
+    event.type === "email_reply_sent" ||
+    event.type === "email_read_estimated" ||
+    event.type === "email_draft_edited"
+  ) {
     return matchEmailToCase(event, cases, contacts);
   }
 

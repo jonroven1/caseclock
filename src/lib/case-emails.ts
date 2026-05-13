@@ -22,7 +22,12 @@ export function getExternalEmailsFromEvent(
   event: RawEvent,
   userEmail: string | undefined
 ): string[] {
-  if (event.type !== "email_received" && event.type !== "email_reply_sent") {
+  if (
+    event.type !== "email_received" &&
+    event.type !== "email_reply_sent" &&
+    event.type !== "email_read_estimated" &&
+    event.type !== "email_draft_edited"
+  ) {
     return [];
   }
   const meta = event.metadata ?? {};

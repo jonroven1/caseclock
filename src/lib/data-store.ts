@@ -5,7 +5,7 @@
 
 import { getDb } from "@/lib/firebase-admin";
 import { getMockRawEvents } from "@/lib/firebase-admin";
-import { demoStore } from "@/lib/demo-store";
+import { demoStore, type OutlookDraftSyncSnapshots } from "@/lib/demo-store";
 import { COLLECTIONS } from "@/lib/firestore";
 import type {
   Case,
@@ -244,6 +244,118 @@ export async function saveRawEvent(e: RawEvent): Promise<void> {
   } else {
     demoStore.rawEvents.push(e);
   }
+}
+
+/** Shallow-merge metadata onto an existing raw event doc (Outlook sync enrichment). */
+export async function mergeRawEventMetadata(
+  userId: string,
+  docId: string,
+  partialMetadata: Record<string, unknown>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    const ix = demoStore.rawEvents.findIndex(
+      (e) => e.id === docId && e.userId === userId
+    );
+    if (ix < 0) return;
+    const prev = demoStore.rawEvents[ix]!;
+    demoStore.rawEvents[ix] = {
+      ...prev,
+      metadata: { ...(prev.metadata ?? {}), ...partialMetadata },
+    };
+    return;
+  }
+  const ref = db.collection(COLLECTIONS.RAW_EVENTS).doc(docId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const data = snap.data() as RawEvent;
+  if (data.userId !== userId) return;
+  await ref.update({
+    metadata: { ...(data.metadata ?? {}), ...partialMetadata },
+  });
+}
+
+/** Find arbitrary raw_events row by Graph message/event id stored in metadata.graphId */
+export async function findRawEventByGraphId(
+  userId: string,
+  graphId: string,
+  type?: RawEvent["type"]
+): Promise<RawEvent | null> {
+  if (!graphId) return null;
+  const db = await getDb();
+  const pickMatch = (list: RawEvent[]) => {
+    const candidates = list.filter(
+      (e) =>
+        e.userId === userId &&
+        (e.metadata as Record<string, unknown> | undefined)?.graphId ===
+          graphId
+    );
+    if (type)
+      return candidates.find((e) => e.type === type) ?? null;
+    return candidates[0] ?? null;
+  };
+  if (db) {
+    const snap = await db
+      .collection(COLLECTIONS.RAW_EVENTS)
+      .where("userId", "==", userId)
+      .where("metadata.graphId", "==", graphId)
+      .limit(8)
+      .get();
+    const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as RawEvent));
+    if (!type) return docs[0] ?? null;
+    return docs.find((e) => e.type === type) ?? null;
+  }
+  const mock = getMockRawEvents();
+  const source =
+    mock.length > 0 ? mock : demoStore.rawEvents;
+  return pickMatch(source);
+}
+
+/** Last-seen Outlook draft lastModified timestamps (per-draft message Graph id). */
+export async function getOutlookDraftSnapshots(
+  userId: string
+): Promise<OutlookDraftSyncSnapshots> {
+  const db = await getDb();
+  if (db) {
+    const doc = await db
+      .collection(COLLECTIONS.OUTLOOK_SYNC_STATE)
+      .doc(userId)
+      .get();
+    if (!doc.exists) return {};
+    const d = doc.data() as { draftLastModified?: OutlookDraftSyncSnapshots };
+    return d.draftLastModified ?? {};
+  }
+  return demoStore.outlookDraftSnapshots[userId] ?? {};
+}
+
+/** Replace draft snapshot map (caller merges deltas). */
+export async function saveOutlookDraftSnapshots(
+  userId: string,
+  drafts: OutlookDraftSyncSnapshots
+): Promise<void> {
+  const db = await getDb();
+  if (db) {
+    await db
+      .collection(COLLECTIONS.OUTLOOK_SYNC_STATE)
+      .doc(userId)
+      .set({ draftLastModified: drafts }, { merge: true });
+  } else {
+    demoStore.outlookDraftSnapshots[userId] = drafts;
+  }
+}
+
+export async function hasRawEventByDocId(
+  userId: string,
+  docId: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    return demoStore.rawEvents.some(
+      (e) => e.userId === userId && e.id === docId
+    );
+  }
+  const snap = await db.collection(COLLECTIONS.RAW_EVENTS).doc(docId).get();
+  return snap.exists && (snap.data() as RawEvent)?.userId === userId;
 }
 
 /** Check if a raw event with this graphId already exists for the user (prevents duplicate sync) */

@@ -12,7 +12,11 @@ import type {
   UserSettings,
 } from "@/types";
 
+/** Draft message id → last observed lastModifiedDateTime (Outlook Graph) across sync runs */
+export type OutlookDraftSyncSnapshots = Record<string, string>;
+
 export const demoStore = {
+  outlookDraftSnapshots: {} as Record<string, OutlookDraftSyncSnapshots>,
   rawEvents: [] as RawEvent[],
   suggestedEntries: [] as SuggestedEntry[],
   timeEntries: [] as TimeEntry[],

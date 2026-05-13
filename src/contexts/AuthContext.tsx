@@ -10,10 +10,13 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut as fbSignOut,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { clearOutlookOAuthBridge } from "@/lib/outlook-oauth-bridge";
 
 interface User {
   uid: string;
@@ -37,6 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    void getRedirectResult(auth).catch(() => {
+      /* stale redirect or non-OAuth navigation */
+    });
+
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       setUser(
         fbUser
@@ -61,10 +68,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === "object" && "code" in e
+          ? String((e as { code: string }).code)
+          : "";
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/cancelled-popup-request" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw e;
+    }
   };
 
   const signOut = async () => {
+    clearOutlookOAuthBridge();
     await fbSignOut(auth);
   };
 

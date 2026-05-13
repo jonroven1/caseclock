@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { RawEvent } from "@/types";
 import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
+import { parseApiJson } from "@/lib/parse-api-json";
 
 const eventTypeConfig: Record<
   string,
@@ -19,6 +20,18 @@ const eventTypeConfig: Record<
     icon: "↩️",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
+  },
+  email_read_estimated: {
+    label: "Email read (estimated)",
+    icon: "👁️",
+    color: "text-cyan-600",
+    bgColor: "bg-cyan-50",
+  },
+  email_draft_edited: {
+    label: "Draft edited",
+    icon: "📝",
+    color: "text-rose-600",
+    bgColor: "bg-rose-50",
   },
   calendar_event: {
     label: "Calendar",
@@ -75,8 +88,9 @@ export default function TimelinePage() {
     if (!userId) return;
     setLoading(true);
     fetchWithAuth(`/api/data/events?date=${date}`)
-      .then((r) => r.json())
-      .then(setEvents)
+      .then((r) => parseApiJson<RawEvent[]>(r))
+      .then((list) => setEvents(Array.isArray(list) ? list : []))
+      .catch(() => setEvents([]))
       .finally(() => setLoading(false));
   }, [date, userId, fetchWithAuth]);
 

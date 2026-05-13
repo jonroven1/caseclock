@@ -4,9 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuthenticatedFetch } from "@/hooks/useAuthenticatedFetch";
+import { parseApiJson } from "@/lib/parse-api-json";
+import {
+  stashOutlookOAuthUserId,
+  clearOutlookOAuthBridge,
+} from "@/lib/outlook-oauth-bridge";
 
 export default function SettingsPage() {
-  const { fetchWithAuth, userId } = useAuthenticatedFetch();
+  const { fetchWithAuth, userId, authLoading } = useAuthenticatedFetch();
   const [outlookConnected, setOutlookConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -16,8 +21,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!userId) return;
     fetchWithAuth("/api/outlook/status")
-      .then((r) => r.json())
-      .then((data) => setOutlookConnected(data.connected))
+      .then((r) => parseApiJson<{ connected?: boolean }>(r))
+      .then((data) => setOutlookConnected(data.connected === true))
       .catch(() => setOutlookConnected(false))
       .finally(() => setLoading(false));
   }, [userId, fetchWithAuth]);
@@ -57,20 +62,23 @@ export default function SettingsPage() {
         const res = await fetchWithAuth(`/api/outlook/sync?${params}`, {
           method: "POST",
         });
-        const data = await res.json();
-        if (res.ok) {
-          const range =
-            data.startDate === data.endDate
-              ? data.startDate
-              : `${data.startDate} → ${data.endDate}`;
-          setMessage(
-            `Synced ${data.eventsSynced ?? 0} events from Outlook (${range}).`
-          );
-        } else {
-          setMessage(data.error ?? "Sync failed.");
-        }
-      } catch {
-        setMessage("Sync failed.");
+        const data = await parseApiJson<{
+          startDate?: string;
+          endDate?: string;
+          eventsSynced?: number;
+        }>(res);
+        clearOutlookOAuthBridge();
+        const range =
+          data.startDate === data.endDate
+            ? data.startDate
+            : `${data.startDate} → ${data.endDate}`;
+        setMessage(
+          `Synced ${data.eventsSynced ?? 0} events from Outlook (${range}).`
+        );
+      } catch (e) {
+        setMessage(
+          e instanceof Error ? e.message : "Sync failed."
+        );
       } finally {
         setSyncing(false);
       }
@@ -79,6 +87,7 @@ export default function SettingsPage() {
   );
 
   useEffect(() => {
+    if (authLoading) return;
     const params = new URLSearchParams(
       typeof window !== "undefined" ? window.location.search : ""
     );
@@ -91,15 +100,17 @@ export default function SettingsPage() {
       setOutlookConnected(true);
       setMessage("Outlook connected successfully. Syncing…");
       window.history.replaceState({}, "", "/settings");
-      // Brief delay so cookie from redirect is available before sync
-      const t = setTimeout(() => syncOutlook("days=7"), 500);
+      const t = setTimeout(() => syncOutlook("days=7"), 1200);
       return () => clearTimeout(t);
     }
-  }, [userId, syncOutlook]);
+  }, [userId, syncOutlook, authLoading]);
 
   const handleConnect = () => {
     setMessage(null);
-    if (userId) window.location.href = `/api/auth/outlook?userId=${userId}`;
+    if (userId) {
+      stashOutlookOAuthUserId(userId);
+      window.location.href = `/api/auth/outlook?userId=${encodeURIComponent(userId)}`;
+    }
   };
 
   const handleSyncToday = () => {
@@ -119,6 +130,7 @@ export default function SettingsPage() {
 
   const handleDisconnect = async () => {
     setMessage(null);
+    clearOutlookOAuthBridge();
     try {
       await fetchWithAuth("/api/outlook/disconnect", {
         method: "POST",

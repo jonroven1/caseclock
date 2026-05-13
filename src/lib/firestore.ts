@@ -11,6 +11,7 @@ export const COLLECTIONS = {
   TIME_ENTRIES: "time_entries",
   SETTINGS: "settings",
   OUTLOOK_TOKENS: "outlook_tokens",
+  OUTLOOK_SYNC_STATE: "outlook_sync_state",
 } as const;
 
 /** Convert Firestore Timestamp to Date */

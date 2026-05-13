@@ -76,6 +76,10 @@ export type RawEventSource =
 export type RawEventType =
   | "email_received"
   | "email_reply_sent"
+  /** Inferred when sync sees incoming mail go unread → read (Graph has no native first-open time). */
+  | "email_read_estimated"
+  /** Draft message lastModified improved between syncs → interval between touches. */
+  | "email_draft_edited"
   | "calendar_event"
   | "phone_call"
   | "travel"
@@ -153,7 +157,11 @@ export interface UserSettings {
 
 // --- Webhook payload types ---
 export interface EmailEventPayload {
-  type: "email_received" | "email_reply_sent";
+  type:
+    | "email_received"
+    | "email_reply_sent"
+    | "email_read_estimated"
+    | "email_draft_edited";
   subject?: string;
   body?: string;
   from?: string;
