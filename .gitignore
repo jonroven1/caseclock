@@ -36,6 +36,10 @@ yarn-error.log*
 # local secrets / scratch
 caseclock credentials.notepad
 
+# Firebase service account keys (never commit)
+*-firebase-adminsdk*.json
+firebase-adminsdk*.json
+
 # vercel
 .vercel
 
